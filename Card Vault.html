@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Card Vault</title>
+<style>
+:root{--bg:#f6f5f1;--sf:#fff;--tx:#1b1b1a;--mu:#6b6a64;--bd:#e2e0d8;--ac:#c8102e;--ok:#1a7f4b;--wn:#b36b00;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#151514;--sf:#202020;--tx:#f1f0ea;--mu:#a09f97;--bd:#33332f;--ac:#ff4d63;--ok:#4cc38a;--wn:#e9a23b;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#151514;--sf:#202020;--tx:#f1f0ea;--mu:#a09f97;--bd:#33332f;--ac:#ff4d63;--ok:#4cc38a;--wn:#e9a23b;color-scheme:dark}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.w{max-width:980px;margin:0 auto;padding:16px}
+h1{font-size:22px;margin:0}.sub{color:var(--mu);font-size:13px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+button,.btn{font:inherit;border:1px solid var(--bd);background:var(--sf);color:var(--tx);padding:8px 14px;border-radius:8px;cursor:pointer}
+.pri{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:600}
+button:disabled{opacity:.5}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.st{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:8px 14px}.st b{display:block;font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.c{background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden;cursor:pointer}
+.c img{width:100%;aspect-ratio:5/7;object-fit:cover;display:block;background:var(--bd)}
+.c div{padding:8px 10px;font-size:13px}.c b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-block;border-radius:99px;padding:1px 8px;font-size:12px;font-weight:600;border:1px solid var(--bd)}
+.ph{aspect-ratio:5/7;display:flex;align-items:center;justify-content:center;background:var(--bd);color:var(--mu);font-size:13px}.hi{color:var(--ok)}.mid{color:var(--wn)}.lo{color:var(--ac)}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px;z-index:5}
+.md{background:var(--bg);border-radius:14px;max-width:760px;width:100%;padding:18px;margin:auto}
+.row{display:grid;grid-template-columns:200px 1fr;gap:16px}
+@media(max-width:620px){.row{grid-template-columns:1fr}}
+.row img{width:100%;border-radius:8px}
+label{display:block;font-size:12px;color:var(--mu);margin-top:8px}
+input,textarea{width:100%;font:inherit;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;background:var(--sf);color:var(--tx)}
+textarea{min-height:130px}
+.bar{height:8px;background:var(--bd);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}
+.sub2{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
+.sub2 div{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:6px 8px;font-size:12px}.sub2 b{display:block;font-size:16px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.note{font-size:12px;color:var(--mu)}.cd{display:block;width:100%;text-align:left;margin-top:6px}
+h3{margin:16px 0 4px;font-size:15px}
+</style></head><body><div class="w">
+<div class="top"><div><h1>Card Vault</h1><div class="sub">Photo → PSA 10 odds → comps → eBay listing</div></div>
+<div><button id="exp">Export CSV</button> <button id="man">+ Manual entry</button> <label class="btn pri" style="display:inline-block;margin:0;color:#fff">+ Add cards<input id="file" type="file" accept="image/*" multiple hidden></label></div></div>
+<div class="stats" id="stats"></div>
+<div class="grid" id="grid"></div>
+<p class="note" id="empty">No cards yet. Tap “Add cards” to analyze photos (front of card, flat, good light, plain background), or “Manual entry” to type a card in yourself.</p>
+<p class="note">Grade odds are an AI estimate from a photo — they can’t see micro‑scratches or true centering of a slab. Treat them as a screening tool, then verify before paying for grading.</p>
+</div><div id="modal"></div>
+<script>
+let cards=[],col=null,sample=null,dl=null,uid="local",unsub=null;
+const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money=n=>n==null||isNaN(n)?"—":"$"+Number(n).toLocaleString(undefined,{maximumFractionDigits:0});
+function lsGet(){try{return JSON.parse(localStorage.getItem("cv")||"[]")}catch(e){return[]}}
+function lsSet(){try{localStorage.setItem("cv",JSON.stringify(cards))}catch(e){}}
+async function init(){
+  try{const u=await claude.use("user");if(u){uid=await u.id();}}catch(e){}
+  try{const db=await claude.use("db");if(db&&uid!=="local"){col=db.collection("data/users/"+uid);
+    unsub=col.onSnapshot(s=>{cards=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.added-a.added);render()},()=>{col=null;cards=lsGet();render()});}}catch(e){}
+  if(!col){cards=lsGet();render()}
+  try{sample=await claude.use("sample")}catch(e){}
+  try{dl=await claude.use("downloads")}catch(e){}
+  if(!dl)$("#exp").hidden=true;
+}
+async function save(c){const {id,...rest}=c;if(col){try{await col.doc(id).set(JSON.parse(JSON.stringify(rest)))}catch(e){}}else{const i=cards.findIndex(x=>x.id===id);i<0?cards.unshift(c):cards[i]=c;lsSet();render()}}
+async function del(id){if(col){try{await col.doc(id).delete()}catch(e){}}else{cards=cards.filter(x=>x.id!==id);lsSet();render()}}
+function render(){
+  $("#empty").hidden=cards.length>0;
+  const v=cards.reduce((a,c)=>a+(Number(c.value)||0),0);
+  $("#stats").innerHTML=`<div class="st"><b>${cards.length}</b>cards</div><div class="st"><b>${money(v)}</b>est. raw value</div><div class="st"><b>${cards.filter(c=>c.psa10>=60).length}</b>strong PSA 10 candidates</div>`;
+  $("#grid").innerHTML=cards.map(c=>`<div class="c" data-id="${c.id}">${c.img?`<img src="${c.img}" alt="">`:'<div class="ph">No photo</div>'}<div><b>${esc(c.player||(c.status==="pending"?"Analyzing…":"Untitled card"))}</b><span class="note">${esc(c.year||"")} ${esc(c.set||"")}</span><br>${c.status==="error"?'<span class="pill lo">retry</span>':(c.psa?`<span class="pill hi">PSA ${esc(c.psa)}</span>`:c.psa10!=null?`<span class="pill ${c.psa10>=60?"hi":c.psa10>=35?"mid":"lo"}">PSA 10: ${c.psa10}%</span>`:"")+" "+money(c.value)}</div></div>`).join("");
+}
+$("#grid").onclick=e=>{const c=e.target.closest(".c");if(c)openCard(c.dataset.id)};
+function shrink(file,max,q){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>{const k=Math.min(1,max/Math.max(im.width,im.height)),cv=document.createElement("canvas");cv.width=im.width*k;cv.height=im.height*k;cv.getContext("2d").drawImage(im,0,0,cv.width,cv.height);const url=cv.toDataURL("image/jpeg",q);cv.toBlob(b=>res({blob:b,url}),"image/jpeg",q)};im.onerror=rej;im.src=URL.createObjectURL(file)})}
+$("#file").onchange=async e=>{const fs=[...e.target.files];e.target.value="";for(const f of fs)await analyze(f)};
+const PROMPT=`You are a sports card expert. Look at this photo of a sports card (front). Return ONLY JSON:
+{"player":"","year":"","set":"","cardNumber":"","sport":"","variant":"base/parallel/auto/rookie etc","centering":0-10,"corners":0-10,"edges":0-10,"surface":0-10,"psa10":0-100 (probability this card would grade PSA 10 if submitted, judged only from what is visible),"estGrade":"e.g. PSA 8-9","issues":["visible flaws or photo limits"],"value":number (rough USD raw/ungraded market value, null if unsure),"value10":number (rough USD PSA 10 value, null if unsure),"title":"eBay title, max 80 chars, keyword-rich, accurate","description":"eBay description: condition notes from the photo, card details, shipping note. Plain text, short paragraphs. Do not invent facts you cannot see."}
+Use null/"" for anything you cannot read. Be conservative: PSA 10 is rare.`;
+async function analyze(file){
+  const id="c"+Date.now()+Math.random().toString(36).slice(2,6);
+  const [big,small]=await Promise.all([shrink(file,1400,.85),shrink(file,520,.7)]);
+  const c={id,img:small.url,added:Date.now(),status:"pending"};await save(c);if(!col){}
+  if(!sample){c.status="error";c.player="Sign in to analyze";await save(c);return}
+  try{const r=await sample.json(PROMPT,{images:[big.blob],cache:false,modelTier:"complex"});
+    Object.assign(c,r,{status:"done",value:r.value,psa10:Math.round(r.psa10)});}
+  catch(e){c.status="error";c.player="Analysis failed"}
+  await save(c);
+}
+const q=(c,extra)=>[c.year,c.player,c.set,c.cardNumber&&"#"+c.cardNumber,c.variant&&c.variant!=="base"?c.variant:"",extra].filter(Boolean).join(" ");
+const ebay=(t)=>"https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(t)+"&LH_Sold=1&LH_Complete=1";
+function openCard(id){
+  const c=cards.find(x=>x.id===id);if(!c)return;
+  const cls=c.psa10>=60?"hi":c.psa10>=35?"mid":"lo";
+  $("#modal").innerHTML=`<div class="ov" id="ov"><div class="md">
+  <div class="row"><div>${c.img?`<img src="${c.img}" alt="">`:'<div class="ph" style="border-radius:8px">No photo</div>'}<label class="btn" style="display:block;text-align:center;margin-top:8px">${c.img?"Replace":"Add"} photo<input id="f_photo" type="file" accept="image/*" hidden></label>${c.img&&sample?'<button id="re" style="width:100%;margin-top:6px">Estimate grade from photo</button>':""}</div><div>
+  <label>Find my card — type what you know (player, year, set…)</label><div style="display:flex;gap:6px"><input id="f_q" placeholder="e.g. Jordan 86 Fleer rookie"><button id="fm" class="pri">Search</button></div><div id="cands"></div>
+  <label>Player</label><input id="f_player" value="${esc(c.player)}">
+  <label>Year / Set / Card #</label><div style="display:flex;gap:6px"><input id="f_year" value="${esc(c.year)}" style="width:80px"><input id="f_set" value="${esc(c.set)}"><input id="f_cardNumber" value="${esc(c.cardNumber)}" style="width:80px"></div>
+  <label>Variant / parallel</label><input id="f_variant" value="${esc(c.variant)}">
+  <label>My value (USD)</label><input id="f_value" type="number" value="${c.value??""}">
+  <label>Actual PSA grade (if graded)</label><input id="f_psa" value="${esc(c.psa||"")}"><label>Paid (USD)</label><input id="f_paid" type="number" value="${c.paid??""}"><label>Notes</label><input id="f_notes" value="${esc(c.notes)}"></div></div>
+  <h3>PSA 10 odds: <span class="${cls}">${c.psa10!=null?c.psa10+"%":"—"}</span> <span class="note">· est. ${esc(c.estGrade||"—")}</span></h3>
+  <div class="bar"><i style="width:${c.psa10||0}%"></i></div>
+  <div class="sub2"><div>Centering<b>${c.centering??"—"}</b></div><div>Corners<b>${c.corners??"—"}</b></div><div>Edges<b>${c.edges??"—"}</b></div><div>Surface<b>${c.surface??"—"}</b></div></div>
+  ${(c.issues||[]).length?`<p class="note">Flags: ${esc(c.issues.join("; "))}</p>`:""}
+  <h3>Price check</h3><p class="note">AI ballpark: raw ${money(c.value)} · PSA 10 ${money(c.value10)}. Confirm with real sold listings:</p>
+  <div class="acts"><button id="s1">eBay sold — raw</button><button id="s2">eBay sold — PSA 10</button><button id="s3">eBay sold — PSA 9</button><button id="s4">Active listings</button></div>
+  <h3>eBay listing</h3><label>Title <span id="tl"></span></label><input id="f_title" value="${esc(c.title)}">
+  <label>Description</label><textarea id="f_desc">${esc(c.description)}</textarea>
+  <div class="acts"><button id="cp1">Copy title</button><button id="cp2">Copy description</button><button id="regen">Rewrite from my edits</button></div>
+  <div class="acts" style="justify-content:space-between"><button id="del" class="lo">Delete card</button><button id="done" class="pri">Save &amp; close</button></div>
+  </div></div>`;
+  const g=k=>$("#f_"+k).value,upd=()=>{c.player=g("player");c.year=g("year");c.set=g("set");c.cardNumber=g("cardNumber");c.variant=g("variant");c.value=g("value")===""?null:Number(g("value"));c.psa=g("psa");c.paid=g("paid")===""?null:Number(g("paid"));c.notes=g("notes");c.title=g("title");c.description=g("desc")};
+  const tl=()=>{const n=$("#f_title").value.length;$("#tl").textContent=n+"/80";$("#tl").style.color=n>80?"var(--ac)":"var(--mu)"};tl();$("#f_title").oninput=tl;
+  const open=(t)=>{upd();window.open(ebay(q(c,t)),"_blank","noopener")};
+  $("#s1").onclick=()=>open("");$("#s2").onclick=()=>open("PSA 10");$("#s3").onclick=()=>open("PSA 9");
+  $("#s4").onclick=()=>{upd();window.open("https://www.ebay.com/sch/i.html?_nkw="+encodeURIComponent(q(c,"")),"_blank","noopener")};
+  let ms=[];
+  const find=async()=>{upd();const t=$("#f_q").value.trim()||q(c,"");if(!t||!sample)return;const b=$("#fm");b.disabled=true;b.textContent="Searching…";
+    try{const r=await sample.json(`Someone is looking for a specific sports card. What they typed (may be partial or misspelled): "${t}". Fields already filled: ${JSON.stringify({player:c.player,year:c.year,set:c.set,cardNumber:c.cardNumber,variant:c.variant})}. Return ONLY JSON {"matches":[up to 6 distinct real cards that could be what they mean, most likely first, each {"player":"","year":"","set":"","cardNumber":"","sport":"","variant":"","note":"what distinguishes it, e.g. rookie, parallel, auto","value":rough raw USD or null,"value10":rough PSA 10 USD or null}]}. Only include cards you are fairly confident exist; use "" for a card number you are unsure of — never invent one.`,{cache:false});
+      ms=r.matches||[];$("#cands").innerHTML=ms.length?ms.map((m,i)=>`<button class="cd" data-i="${i}"><b>${esc(m.year)} ${esc(m.set)} ${esc(m.player)} ${m.cardNumber?"#"+esc(m.cardNumber):""}</b><br><span class="note">${esc(m.variant||"")} ${esc(m.note||"")} · raw ${money(m.value)} · PSA 10 ${money(m.value10)}</span></button>`).join("")+'<p class="note">AI suggestions from general knowledge, not a live database. Tap the right one, then confirm it on the sold listings.</p>':'<p class="note">No matches. Add more detail (year, set, team).</p>'}
+    catch(x){$("#cands").innerHTML='<p class="note">Search failed — try again.</p>'}b.disabled=false;b.textContent="Search"};
+  $("#fm").onclick=find;$("#f_q").onkeydown=e=>{if(e.key==="Enter")find()};
+  $("#cands").onclick=e=>{const k=e.target.closest(".cd");if(!k)return;const m=ms[k.dataset.i];
+    ["player","year","set","cardNumber","variant"].forEach(f=>$("#f_"+f).value=m[f]||"");if(m.value!=null&&!$("#f_value").value)$("#f_value").value=m.value;c.value10=m.value10;c.sport=m.sport;
+    upd();if(!$("#f_title").value)$("#f_title").value=[c.year,c.set,c.player,c.cardNumber&&"#"+c.cardNumber,c.variant].filter(Boolean).join(" ").slice(0,80);tl();$("#cands").innerHTML='<p class="note">✓ Card selected. Edit anything below, then use the sold-listing buttons.</p>'};
+  if(c.fresh)$("#f_q").focus();
+  const cp=async(t,b)=>{try{await navigator.clipboard.writeText(t);b.textContent="Copied ✓"}catch(e){$("#f_desc").select()}};
+  $("#cp1").onclick=e=>cp($("#f_title").value,e.target);$("#cp2").onclick=e=>cp($("#f_desc").value,e.target);
+  $("#regen").onclick=async e=>{if(!sample)return;upd();e.target.disabled=true;e.target.textContent="Writing…";
+    try{const r=await sample.json(`Write an eBay listing for this sports card. Details: ${JSON.stringify({player:c.player,year:c.year,set:c.set,cardNumber:c.cardNumber,variant:c.variant,gradedPSA:c.psa||null,flaws:c.issues})}. Return ONLY JSON {"title":"max 80 chars","description":"plain text, short paragraphs, no invented facts"}`,{cache:false});
+      $("#f_title").value=r.title;$("#f_desc").value=r.description;tl()}catch(x){}e.target.disabled=false;e.target.textContent="Rewrite from my edits"};
+  $("#done").onclick=async()=>{upd();delete c.fresh;await save(c);$("#modal").innerHTML=""};
+  $("#f_photo").onchange=async e=>{const f=e.target.files[0];if(!f)return;upd();const [b,s]=await Promise.all([shrink(f,1400,.85),shrink(f,520,.7)]);c.img=s.url;BIG[c.id]=b.blob;delete c.fresh;await save(c);openCard(c.id)};
+  const re=$("#re");if(re)re.onclick=async()=>{upd();re.disabled=true;re.textContent="Analyzing…";try{const r=await sample.json(PROMPT,{images:[BIG[c.id]||dataBlob(c.img)],cache:false,modelTier:"complex"});mergeAI(c,r);delete c.fresh;await save(c);openCard(c.id)}catch(x){re.textContent="Failed — retry";re.disabled=false}};
+  $("#del").onclick=async()=>{if(confirm("Delete this card?")){await del(c.id);$("#modal").innerHTML=""}};
+  $("#ov").onclick=e=>{if(e.target.id==="ov"){if(c.fresh){cards=cards.filter(x=>x.id!==c.id);render()}$("#modal").innerHTML=""}};
+}
+const BIG={};
+function dataBlob(u){const [h,b]=u.split(","),m=h.match(/:(.*?);/)[1],bin=atob(b),a=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i);return new Blob([a],{type:m})}
+function mergeAI(c,r){for(const k of ["player","year","set","cardNumber","variant","title","description"])if(!c[k]&&r[k])c[k]=r[k];for(const k of ["centering","corners","edges","surface","estGrade","issues","value10"])c[k]=r[k];c.psa10=Math.round(r.psa10);if(c.value==null)c.value=r.value}
+$("#man").onclick=()=>{const c={id:"c"+Date.now()+Math.random().toString(36).slice(2,6),added:Date.now(),status:"done",fresh:true};cards.unshift(c);openCard(c.id)};
+$("#exp").onclick=async()=>{if(!dl)return;const h=["player","year","set","cardNumber","variant","psa","psa10_odds","value","title"];
+  const rows=[h.join(",")].concat(cards.map(c=>[c.player,c.year,c.set,c.cardNumber,c.variant,c.psa,c.psa10,c.value,c.title].map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")));
+  try{await dl.save({filename:"card-vault.csv",data:rows.join("\n")})}catch(e){}};
+init();
+</script></body></html>
